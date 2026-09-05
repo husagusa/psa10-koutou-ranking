@@ -1,0 +1,18 @@
+name: カードを追加
+description: SNKRDUNKの商品URLからPSA10ランキングに追加します。
+title: "[カード追加] PSA10相場の取得"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        URLを確認して「Create」を押してください。GitHubへのログインが必要です。
+        所有者・書き込み権限のある共同管理者の申請を自動処理します。
+        取得には数分かかります。結果はこのIssueに表示されます。
+  - type: input
+    id: card-url
+    attributes:
+      label: SNKRDUNK URL
+      description: SNKRDUNKのカード商品ページのURLを1つ貼り付けてください。
+      placeholder: https://snkrdunk.com/apparels/91156
+    validations:
+      required: true
