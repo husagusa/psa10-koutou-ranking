@@ -97,3 +97,81 @@ function compare(rows,days){
     pct:old.price?diff/old.price:null
   };
 }
+function render(){
+  const days=Number(document.getElementById('period').value);
+  const metric=document.getElementById('metric').value;
+
+  const view=cards.map(c=>{
+    const cur=c.rows[c.rows.length-1];
+    return {...c,cur,cmp:compare(c.rows,days)};
+  }).sort((a,b)=>{
+    const av=a.cmp?.[metric], bv=b.cmp?.[metric];
+    if(av==null&&bv==null)return 0;
+    if(av==null)return 1;
+    if(bv==null)return -1;
+    return bv-av;
+  });
+
+  document.getElementById('list').innerHTML=view.map((r,i)=>`
+    <div class="card">
+      <div class="rank">${i+1}位</div>
+      <div class="name">
+        <a href="${r.url}" target="_blank">${r.name}</a>
+      </div>
+
+      <div class="grid">
+        <div>
+          <div class="label">現在相場</div>
+          <div class="value">${yen(r.cur.price)}</div>
+          <div class="label">${r.cur.date}</div>
+        </div>
+
+        <div>
+          <div class="label">比較元相場</div>
+          <div class="value">${r.cmp?yen(r.cmp.old):'-'}</div>
+          <div class="label">${r.cmp?r.cmp.base:'-'}</div>
+        </div>
+
+        <div>
+          <div class="label">上昇額</div>
+          <div class="value ${r.cmp?cls(r.cmp.diff):''}">
+            ${r.cmp?yen(r.cmp.diff,true):'-'}
+          </div>
+        </div>
+
+        <div>
+          <div class="label">上昇率</div>
+          <div class="value ${r.cmp?cls(r.cmp.pct):''}">
+            ${r.cmp?pct(r.cmp.pct):'-'}
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+fetch('history.csv?ts='+Date.now())
+  .then(r=>{
+    if(!r.ok) throw new Error('history.csv がありません');
+    return r.text();
+  })
+  .then(t=>{
+    const rows=csvParse(t);
+    build(rows);
+
+    document.getElementById('status').textContent=
+      `対象 ${cards.length}枚｜最新データを表示中`;
+
+    render();
+  })
+  .catch(e=>{
+    document.getElementById('status').textContent=
+      'データの読み込みに失敗しました';
+    console.error(e);
+  });
+
+document.getElementById('period').addEventListener('change',render);
+document.getElementById('metric').addEventListener('change',render);
+</script>
+</body>
+</html>
