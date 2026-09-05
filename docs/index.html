@@ -21,12 +21,30 @@ select{font-size:16px;padding:10px 12px;border:1px solid #ccc;border-radius:12px
 a{color:inherit;text-decoration:none}
 .note{font-size:12px;color:#777;margin-top:18px;line-height:1.6}
 @media(min-width:760px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.add-card{background:#fff;border-radius:16px;padding:14px;margin:12px 0}
+.add-card summary{min-height:44px;display:flex;align-items:center;font-weight:700;color:#075cc9;cursor:pointer}
+.add-card label{display:block;margin:12px 0 8px}
+.add-card input,.add-card button{box-sizing:border-box;width:100%;font:inherit;font-size:16px;min-height:48px;border-radius:12px;padding:12px}
+.add-card input{border:1px solid #aaa}
+.add-card button{margin-top:12px;background:#075cc9;color:white;border:0;font-weight:700;cursor:pointer}
+.add-card p{font-size:13px;line-height:1.6;color:#555}
+#add-error{color:#b42318}
 </style>
 </head>
 <body>
 <div class="wrap">
 <h1>🔥 PSA10 高騰ランキング</h1>
 <div class="sub" id="status">データを読み込み中...</div>
+<details class="add-card" id="add-card">
+<summary>＋カードを追加</summary>
+<form id="add-form">
+<label for="card-url">SNKRDUNKの商品URL</label>
+<input id="card-url" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://snkrdunk.com/apparels/91156" maxlength="2048" required aria-describedby="add-help add-error">
+<p id="add-help">URLを貼り付けて次へ。GitHubで「Create」を押すと追加が始まります（ログインが必要です）。所有者・共同管理者向けの機能です。取得には数分かかり、結果はIssueで確認できます。</p>
+<p id="add-error" role="alert"></p>
+<button type="submit">GitHubで追加を確定する →</button>
+</form>
+</details>
 <div class="controls">
 <select id="period"><option value="1">前日</option><option value="7">7日</option><option value="30">30日</option></select>
 <select id="metric"><option value="diff">上昇額</option><option value="pct">上昇率</option></select>
@@ -36,6 +54,31 @@ a{color:inherit;text-decoration:none}
 </div>
 <script>
 let cards = [];
+function normalizedCardUrl(value){
+  const raw=value.trim();
+  if(raw.length>2048 || /[\s\\\x00-\x1f\x7f]/.test(raw)) throw new Error('invalid');
+  // Check raw authority too: URL() silently normalizes ports and dot segments.
+  if(!/^https:\/\/(?:www\.)?snkrdunk\.com\/apparels\/[1-9][0-9]{0,11}\/?(?:[?#].*)?$/i.test(raw)) throw new Error('invalid');
+  const u=new URL(raw);
+  return 'https://snkrdunk.com'+u.pathname.replace(/\/$/,'');
+}
+document.getElementById('add-form').addEventListener('submit',event=>{
+  event.preventDefault();
+  const error=document.getElementById('add-error');
+  try{
+    const url=normalizedCardUrl(document.getElementById('card-url').value);
+    const next=new URL('https://github.com/husagusa/psa10-koutou-ranking/issues/new');
+    next.searchParams.set('template','add-card.yml');
+    next.searchParams.set('card-url',url);
+    error.textContent='';
+    window.location.assign(next.href);
+  }catch(e){
+    error.textContent='https://snkrdunk.com/apparels/数字 の商品URLを貼り付けてください。';
+    document.getElementById('card-url').focus();
+  }
+});
+function escapeHtml(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function safeCardLink(value){try{return normalizedCardUrl(value)}catch(e){return '#'}}
 
 function csvParse(text){
   const lines=text.trim().split(/\r?\n/);
@@ -116,7 +159,7 @@ function render(){
     <div class="card">
       <div class="rank">${i+1}位</div>
       <div class="name">
-        <a href="${r.url}" target="_blank">${r.name}</a>
+        <a href="${escapeHtml(safeCardLink(r.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}</a>
       </div>
 
       <div class="grid">
