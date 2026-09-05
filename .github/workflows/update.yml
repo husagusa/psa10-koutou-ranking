@@ -4,41 +4,86 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "10 22 * * *"
+  issues:
+    types: [opened, edited, reopened]
+  push:
+    branches: [main]
+    paths: ['docs/**', 'scripts/**', '.github/workflows/update.yml']
 
 permissions:
-  contents: write
+  contents: read
+
+# Daily updates and card additions share one writer. Every run scans all pending
+# requests so a replaced pending run never loses a card request.
+concurrency:
+  group: psa10-data-and-pages
+  cancel-in-progress: false
 
 jobs:
   update:
+    if: >-
+      github.event_name != 'issues' ||
+      (startsWith(github.event.issue.title, '[カード追加]') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
+    permissions:
+      contents: write
+      issues: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: main
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-
+      - name: Test request validation
+        run: python -m unittest discover -s tests -v
+      - name: Validate and register pending card requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/card_requests.py prepare
       - name: Install
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
-
       - name: Collect
+        id: collect
+        continue-on-error: true
         run: python collector.py
-
       - name: Publish data for GitHub Pages
         run: cp data/history.csv docs/history.csv
-
-      - name: Commit updated prices
+      - name: Commit cards and prices
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/history.csv docs/history.csv
-          if git diff --cached --quiet; then
-            echo "No changes"
-          else
-            git commit -m "Update PSA10 prices"
-            git push
+          git add cards.csv data/history.csv docs/history.csv
+          if ! git diff --cached --quiet; then
+            git commit -m "Update PSA10 cards and prices"
+            gh auth setup-git
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
+        id: deployment
+      - name: Report request results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COLLECT_OUTCOME: ${{ steps.collect.outcome }}
+        run: python scripts/card_requests.py report
+      - name: Surface collection failure
+        if: steps.collect.outcome == 'failure'
+        run: |
+          echo 'Collection failed; registered cards and existing history were preserved. See Collect logs.'
+          exit 1
