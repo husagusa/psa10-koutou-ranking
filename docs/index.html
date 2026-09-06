@@ -32,6 +32,8 @@ a{color:inherit;text-decoration:none}
 .portfolio{background:#fff;border-radius:16px;padding:18px;margin:16px 0;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .portfolio h2{font-size:15px;margin:0 0 8px;color:#444}
 .total-value{font-size:clamp(28px,8vw,40px);font-weight:800;overflow-wrap:anywhere}
+.portfolio-period{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+.portfolio-period select{width:100%;min-height:48px;box-sizing:border-box}
 .portfolio-change{border-top:1px solid #e5e7eb;margin-top:14px;padding-top:14px}
 .change-value{font-size:22px;font-weight:750;display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0}
 .portfolio p{font-size:12px;color:#555;line-height:1.7;margin:8px 0 0}
@@ -47,11 +49,20 @@ a{color:inherit;text-decoration:none}
 <div class="total-value" id="portfolio-total"></div>
 <p id="portfolio-count"></p>
 <div class="portfolio-change">
-<div class="label">前回比（比較可能なカードのみ）</div>
-<div class="change-value" id="portfolio-change"></div>
+<div class="portfolio-period">
+<label for="portfolio-period">総額の比較期間</label>
+<select id="portfolio-period">
+<option value="recent">直近比（ひとつ前の価格）</option>
+<option value="7">7日前</option>
+<option value="30">30日前</option>
+<option value="3months">3か月前</option>
+</select>
+</div>
+<div class="label" id="portfolio-comparison-label"></div>
+<div class="change-value" id="portfolio-change" role="status" aria-live="polite"></div>
 <p id="portfolio-basis"></p>
 </div>
-<p>各カードの最新相場 × 保有枚数を合計。前回比にも現在と同じ保有枚数を適用するため、枚数の増減による資産額の変化は含みません。価格を取得できていないカードは含みません。前回比は各カードの履歴で最新のひとつ前の相場との比較です。相場日はカードごとに異なり、前日比や前回の自動更新時点との比較ではありません。下の期間切替には連動しません。</p>
+<p>各カードの最新価格に保有枚数を掛けて合計します。比較元にも現在と同じ保有枚数を使うため、枚数の増減による資産額の変化は含みません。差額と率は、比較できるカードだけを両側で同じ枚数にそろえて計算します。7日前・30日前・3か月前は日本時間の今日が起点です。基準日の価格がなければ、その日以前でもっとも近い相場日を使います。3か月前は暦月で計算し、同じ日がなければ月末を使います。直近比は各カードの最新相場のひとつ前の価格です。相場日はカードごとに異なり、自動更新の実行日とは異なります。下の個別カードランキングの期間切替とは独立しています。</p>
 </section>
 <details class="add-card" id="add-card">
 <summary>＋カードを追加</summary>
@@ -136,7 +147,26 @@ function build(rows){
   cards=[...map.values()];
   cards.forEach(c=>c.rows.sort((a,b)=>a.date.localeCompare(b.date)));
 }
-function portfolioTotals(items){
+const portfolioLabels={recent:'直近比', '7':'7日前', '30':'30日前', '3months':'3か月前'};
+function japanToday(now=new Date()){
+  return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+}
+function portfolioTarget(period,today){
+  if(period==='recent') return null;
+  const date=new Date(today+'T00:00:00Z');
+  if(period==='3months'){
+    const day=date.getUTCDate();
+    date.setUTCDate(1);
+    date.setUTCMonth(date.getUTCMonth()-3);
+    const lastDay=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();
+    date.setUTCDate(Math.min(day,lastDay));
+  }else{
+    date.setUTCDate(date.getUTCDate()-Number(period));
+  }
+  return date.toISOString().slice(0,10);
+}
+function portfolioTotals(items,period='recent',today=japanToday()){
+  const target=portfolioTarget(period,today);
   let total=0, current=0, previous=0, count=0, comparable=0;
   for(const c of items){
     if(!c.rows.length) continue;
@@ -144,24 +174,32 @@ function portfolioTotals(items){
     const copies=quantity(c);
     total+=latest.price*copies;
     count+=copies;
-    if(c.rows.length<2) continue;
+    const old=period==='recent'
+      ?c.rows[c.rows.length-2]
+      :c.rows.filter(r=>r.date<=target).at(-1);
+    if(!old) continue;
     current+=latest.price*copies;
-    previous+=c.rows[c.rows.length-2].price*copies;
+    previous+=old.price*copies;
     comparable+=copies;
   }
   const diff=comparable?current-previous:null;
   return {total,count,current,previous,comparable,diff,pct:comparable && previous>0?diff/previous:null};
 }
 function renderPortfolio(){
-  const s=portfolioTotals(cards);
+  const period=document.getElementById('portfolio-period').value;
+  const today=japanToday();
+  const target=portfolioTarget(period,today);
+  const s=portfolioTotals(cards,period,today);
   document.getElementById('portfolio-total').textContent=s.count?yen(s.total):'—';
-  document.getElementById('portfolio-count').textContent=`価格取得済み ${cards.length}種類・保有 ${s.count}枚`;
+  document.getElementById('portfolio-count').textContent=`価格取得済み ${cards.filter(c=>c.rows.length).length}種類・保有 ${s.count}枚`;
+  document.getElementById('portfolio-comparison-label').textContent=`${portfolioLabels[period]}（比較可能なカードのみ）`;
   const change=document.getElementById('portfolio-change');
   change.className='change-value '+cls(s.diff);
   change.textContent=s.comparable?`${yen(s.diff,true)}（${s.pct===null?'率は算出不可':pct(s.pct)}）`:'比較できる履歴がありません';
-  document.getElementById('portfolio-basis').textContent=s.comparable
-    ?`比較対象 ${s.comparable}枚：前回合計 ${yen(s.previous)} → 現在合計 ${yen(s.current)}。前回価格のない ${s.count-s.comparable}枚は、比較の両合計から除外。${s.previous===0?'前回合計が0円のため率は算出できません。':''}`
-    :'前回価格があるカードが揃うと、差額と率を表示します。';
+  const basis=target?`基準日：${target}（日本時間の今日 ${today} から計算、その日以前の最新価格）。`:'各カードのひとつ前の相場と比較。';
+  document.getElementById('portfolio-basis').textContent=basis+`比較対象 ${s.comparable}枚／全${s.count}枚。`+(s.comparable
+    ?`比較元合計 ${yen(s.previous)} → 現在合計 ${yen(s.current)}。比較価格のない ${s.count-s.comparable}枚は両合計から除外。${s.previous===0?'比較元合計が0円のため率は算出できません。':''}`
+    :'この期間の比較価格があるカードはありません。');
   document.getElementById('portfolio').hidden=false;
 }
 function compare(rows,days){
@@ -269,6 +307,7 @@ fetch('history.csv?ts='+Date.now())
     console.error(e);
   });
 
+document.getElementById('portfolio-period').addEventListener('change',renderPortfolio);
 document.getElementById('period').addEventListener('change',render);
 document.getElementById('metric').addEventListener('change',render);
 </script>
