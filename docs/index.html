@@ -29,12 +29,30 @@ a{color:inherit;text-decoration:none}
 .add-card button{margin-top:12px;background:#075cc9;color:white;border:0;font-weight:700;cursor:pointer}
 .add-card p{font-size:13px;line-height:1.6;color:#555}
 #add-error{color:#b42318}
+.portfolio{background:#fff;border-radius:16px;padding:18px;margin:16px 0;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.portfolio h2{font-size:15px;margin:0 0 8px;color:#444}
+.total-value{font-size:clamp(28px,8vw,40px);font-weight:800;overflow-wrap:anywhere}
+.portfolio-change{border-top:1px solid #e5e7eb;margin-top:14px;padding-top:14px}
+.change-value{font-size:22px;font-weight:750;display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0}
+.portfolio p{font-size:12px;color:#555;line-height:1.7;margin:8px 0 0}
+[hidden]{display:none!important}
 </style>
 </head>
 <body>
 <div class="wrap">
 <h1>🔥 PSA10 高騰ランキング</h1>
 <div class="sub" id="status">データを読み込み中...</div>
+<section class="portfolio" id="portfolio" aria-labelledby="portfolio-title" hidden>
+<h2 id="portfolio-title">現在のPSA10総額</h2>
+<div class="total-value" id="portfolio-total"></div>
+<p id="portfolio-count"></p>
+<div class="portfolio-change">
+<div class="label">前回比（比較可能なカードのみ）</div>
+<div class="change-value" id="portfolio-change"></div>
+<p id="portfolio-basis"></p>
+</div>
+<p>各カードの最新相場を1枚ずつ合計。価格を取得できていないカードは含みません。前回比は各カードの履歴で最新のひとつ前の相場との比較です。相場日はカードごとに異なり、前日比や前回の自動更新時点との比較ではありません。下の期間切替には連動しません。</p>
+</section>
 <details class="add-card" id="add-card">
 <summary>＋カードを追加</summary>
 <form id="add-form">
@@ -103,12 +121,40 @@ function cls(n){ return n>0?'pos':n<0?'neg':'' }
 function build(rows){
   const map=new Map();
   for(const r of rows){
+    if(!r.url || !/^\d{4}-\d{2}-\d{2}$/.test(r.source_date) || !String(r.price).trim() || !Number.isFinite(Number(r.price)) || Number(r.price)<0) continue;
     const key=r.url;
     if(!map.has(key)) map.set(key,{url:r.url,name:r.name,rows:[]});
     map.get(key).rows.push({date:r.source_date,price:Number(r.price)});
   }
   cards=[...map.values()];
   cards.forEach(c=>c.rows.sort((a,b)=>a.date.localeCompare(b.date)));
+}
+function portfolioTotals(items){
+  let total=0, current=0, previous=0, count=0, comparable=0;
+  for(const c of items){
+    if(!c.rows.length) continue;
+    const latest=c.rows[c.rows.length-1];
+    total+=latest.price;
+    count++;
+    if(c.rows.length<2) continue;
+    current+=latest.price;
+    previous+=c.rows[c.rows.length-2].price;
+    comparable++;
+  }
+  const diff=comparable?current-previous:null;
+  return {total,count,current,previous,comparable,diff,pct:comparable && previous>0?diff/previous:null};
+}
+function renderPortfolio(){
+  const s=portfolioTotals(cards);
+  document.getElementById('portfolio-total').textContent=s.count?yen(s.total):'—';
+  document.getElementById('portfolio-count').textContent=`価格取得済み ${s.count}枚（各カード1枚）`;
+  const change=document.getElementById('portfolio-change');
+  change.className='change-value '+cls(s.diff);
+  change.textContent=s.comparable?`${yen(s.diff,true)}（${s.pct===null?'率は算出不可':pct(s.pct)}）`:'比較できる履歴がありません';
+  document.getElementById('portfolio-basis').textContent=s.comparable
+    ?`比較対象 ${s.comparable}枚：前回合計 ${yen(s.previous)} → 現在合計 ${yen(s.current)}。前回価格のない ${s.count-s.comparable}枚は、比較の両合計から除外。${s.previous===0?'前回合計が0円のため率は算出できません。':''}`
+    :'前回価格があるカードが揃うと、差額と率を表示します。';
+  document.getElementById('portfolio').hidden=false;
 }
 function compare(rows,days){
   const cur=rows[rows.length-1];
@@ -205,6 +251,7 @@ fetch('history.csv?ts='+Date.now())
     document.getElementById('status').textContent=
       `対象 ${cards.length}枚｜最新データを表示中`;
 
+    renderPortfolio();
     render();
   })
   .catch(e=>{
