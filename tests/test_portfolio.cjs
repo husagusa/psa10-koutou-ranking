@@ -29,3 +29,13 @@ test('real data renders and keeps card addition URL validation',()=>{
  assert.equal(run("normalizedCardUrl('https://snkrdunk.com/apparels/91156?x=1')"),'https://snkrdunk.com/apparels/91156');
  console.log(elements.get('portfolio-total').textContent,elements.get('portfolio-change').textContent,elements.get('portfolio-basis').textContent);
 });
+
+test('owned copies weight both comparison totals; new cards default to one',()=>{
+ const s=context.portfolioTotals([
+ {url:'https://snkrdunk.com/apparels/730956',rows:[{price:100},{price:150}]},
+ {url:'https://snkrdunk.com/apparels/737036',rows:[{price:80},{price:60}]},
+ {url:'https://snkrdunk.com/apparels/408333',rows:[{price:50}]},
+ {url:'new',rows:[{price:10},{price:20}]}
+ ]);
+ assert.deepEqual(JSON.parse(JSON.stringify(s)),{total:540,count:7,current:440,previous:370,comparable:5,diff:70,pct:70/370});
+});

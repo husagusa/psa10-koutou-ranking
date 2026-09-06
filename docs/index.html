@@ -51,7 +51,7 @@ a{color:inherit;text-decoration:none}
 <div class="change-value" id="portfolio-change"></div>
 <p id="portfolio-basis"></p>
 </div>
-<p>各カードの最新相場を1枚ずつ合計。価格を取得できていないカードは含みません。前回比は各カードの履歴で最新のひとつ前の相場との比較です。相場日はカードごとに異なり、前日比や前回の自動更新時点との比較ではありません。下の期間切替には連動しません。</p>
+<p>各カードの最新相場 × 保有枚数を合計。前回比にも現在と同じ保有枚数を適用するため、枚数の増減による資産額の変化は含みません。価格を取得できていないカードは含みません。前回比は各カードの履歴で最新のひとつ前の相場との比較です。相場日はカードごとに異なり、前日比や前回の自動更新時点との比較ではありません。下の期間切替には連動しません。</p>
 </section>
 <details class="add-card" id="add-card">
 <summary>＋カードを追加</summary>
@@ -72,6 +72,13 @@ a{color:inherit;text-decoration:none}
 </div>
 <script>
 let cards = [];
+// Owned PSA10 copies; cards without an override default to one copy.
+const holdings = {
+  'https://snkrdunk.com/apparels/730956': 2, // MEGAドリームex
+  'https://snkrdunk.com/apparels/737036': 2, // スタートデッキ100
+  'https://snkrdunk.com/apparels/408333': 2, // 超電ブレイカー
+};
+function quantity(card){return holdings[card.url] ?? 1;}
 function normalizedCardUrl(value){
   const raw=value.trim();
   if(raw.length>2048 || /[\s\\\x00-\x1f\x7f]/.test(raw)) throw new Error('invalid');
@@ -134,12 +141,13 @@ function portfolioTotals(items){
   for(const c of items){
     if(!c.rows.length) continue;
     const latest=c.rows[c.rows.length-1];
-    total+=latest.price;
-    count++;
+    const copies=quantity(c);
+    total+=latest.price*copies;
+    count+=copies;
     if(c.rows.length<2) continue;
-    current+=latest.price;
-    previous+=c.rows[c.rows.length-2].price;
-    comparable++;
+    current+=latest.price*copies;
+    previous+=c.rows[c.rows.length-2].price*copies;
+    comparable+=copies;
   }
   const diff=comparable?current-previous:null;
   return {total,count,current,previous,comparable,diff,pct:comparable && previous>0?diff/previous:null};
@@ -147,7 +155,7 @@ function portfolioTotals(items){
 function renderPortfolio(){
   const s=portfolioTotals(cards);
   document.getElementById('portfolio-total').textContent=s.count?yen(s.total):'—';
-  document.getElementById('portfolio-count').textContent=`価格取得済み ${s.count}枚（各カード1枚）`;
+  document.getElementById('portfolio-count').textContent=`価格取得済み ${cards.length}種類・保有 ${s.count}枚`;
   const change=document.getElementById('portfolio-change');
   change.className='change-value '+cls(s.diff);
   change.textContent=s.comparable?`${yen(s.diff,true)}（${s.pct===null?'率は算出不可':pct(s.pct)}）`:'比較できる履歴がありません';
@@ -204,13 +212,14 @@ function render(){
   document.getElementById('list').innerHTML=view.map((r,i)=>`
     <div class="card">
       <div class="rank">${i+1}位</div>
+      <div class="label">保有 ${quantity(r)}枚｜保有分 ${yen(r.cur.price*quantity(r))}</div>
       <div class="name">
         <a href="${escapeHtml(safeCardLink(r.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}</a>
       </div>
 
       <div class="grid">
         <div>
-          <div class="label">現在相場</div>
+          <div class="label">現在相場（1枚）</div>
           <div class="value">${yen(r.cur.price)}</div>
           <div class="label">${r.cur.date}</div>
         </div>
@@ -249,7 +258,7 @@ fetch('history.csv?ts='+Date.now())
     build(rows);
 
     document.getElementById('status').textContent=
-      `対象 ${cards.length}枚｜最新データを表示中`;
+      `対象 ${cards.length}種類｜最新データを表示中`;
 
     renderPortfolio();
     render();
