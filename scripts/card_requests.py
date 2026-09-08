@@ -104,6 +104,12 @@ def set_quantity(path, url, quantity):
         writer.writerows(rows)
 
 
+def needs_collection(event_name, results):
+    # Quantity-only Issue runs publish existing prices immediately. Daily, manual
+    # and push runs still refresh prices; pending card additions always collect.
+    return event_name != 'issues' or any('quantity' not in r for r in results)
+
+
 def prepare():
     results = []
     ledger_path = ROOT / 'data/holding_requests.json'
@@ -128,6 +134,9 @@ def prepare():
                     set_quantity(ROOT / 'cards.csv', url, quantity)
                     ledger.append(receipt)
                 result['quantity'] = quantity
+                comment_once(issue['number'], '所持枚数の変更を受け付けました（申請: ' + str(quantity) +
+                             '枚）。公開完了後に結果をコメントして自動Closeします。' +
+                             '\n処理状況: https://github.com/' + os.environ.get('GITHUB_REPOSITORY', 'husagusa/psa10-koutou-ranking') + '/actions')
             else:
                 add_urls(ROOT / 'cards.csv', [url])
             results.append(result)
@@ -136,6 +145,9 @@ def prepare():
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text(json.dumps(ledger, indent=2) + '\n', encoding='utf-8')
     RESULTS.write_text(json.dumps(results), encoding='utf-8')
+    if os.environ.get('GITHUB_OUTPUT'):
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+            output.write('collect_required=' + str(needs_collection(os.environ.get('GITHUB_EVENT_NAME'), results)).lower() + '\n')
 
 
 def report():

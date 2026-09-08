@@ -51,14 +51,17 @@ jobs:
       - name: Test request validation
         run: python -m unittest discover -s tests -v
       - name: Validate and register pending card requests
+        id: requests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/card_requests.py prepare
       - name: Install
+        if: steps.requests.outputs.collect_required == 'true'
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
       - name: Collect
+        if: steps.requests.outputs.collect_required == 'true'
         id: collect
         continue-on-error: true
         run: python collector.py
