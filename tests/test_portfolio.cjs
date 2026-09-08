@@ -90,7 +90,7 @@ test('six months uses each latest date, falls back only earlier and excludes mis
  assert.equal(context.compare(items[0].rows,'recent').old,999);
 });
 
-test('zero is excluded from every total, restore works and ranking filter is independent',()=>{
+test('zero is hidden in every ranking and total, with history retained for restoration',()=>{
  run(`loadHoldings([{url:'https://snkrdunk.com/apparels/1',quantity:'0'},{url:'https://snkrdunk.com/apparels/2',quantity:'3'}]);build([
  {url:'https://snkrdunk.com/apparels/1',name:'Unowned',source_date:'2025-01-01',price:'100'},
  {url:'https://snkrdunk.com/apparels/1',name:'Unowned',source_date:'2026-09-01',price:'200'},
@@ -100,11 +100,24 @@ test('zero is excluded from every total, restore works and ranking filter is ind
   const s=context.portfolioTotals(run('cards'),period);
   assert.equal(s.total,60);assert.equal(s.previous,30);assert.equal(s.diff,30);assert.equal(s.count,3);
  }
- elements.get('ownership-filter').value='all';run('render()');assert.match(elements.get('list').innerHTML,/未所持（0枚）/);
- elements.get('ownership-filter').value='owned';run('render()');assert.doesNotMatch(elements.get('list').innerHTML,/Unowned/);
- run(`holdings['https://snkrdunk.com/apparels/1']=1`);assert.equal(run('portfolioTotals(cards).total'),260);
+ const history=run('JSON.stringify(cards)');
+ for(const period of ['recent','7','30','3months','6months']) for(const metric of ['diff','pct']){
+  elements.get('period').value=period;elements.get('metric').value=metric;run('render()');
+  assert.doesNotMatch(elements.get('list').innerHTML,/Unowned/);
+  assert.match(elements.get('list').innerHTML,/Owned/);
+  assert.match(elements.get('list').innerHTML,/1位/);
+  assert.doesNotMatch(elements.get('list').innerHTML,/2位/);
+ }
+ assert.equal(run('JSON.stringify(cards)'),history);
+ run(`holdings['https://snkrdunk.com/apparels/1']=1;render()`);
+ assert.match(elements.get('list').innerHTML,/Unowned/);
+ assert.equal(run('portfolioTotals(cards).total'),260);
+ assert.equal(run('JSON.stringify(cards)'),history);
+ run('renderManagement()');assert.match(elements.get('holdings-list').innerHTML,/quantity-0/);
  run(`holdings['https://snkrdunk.com/apparels/1']=0;holdings['https://snkrdunk.com/apparels/2']=0;renderPortfolio()`);
  assert.equal(elements.get('portfolio-total').textContent,'¥0');assert.equal(run('portfolioTotals(cards).diff'),null);
+ run('render();renderManagement()');assert.match(elements.get('list').innerHTML,/表示対象の相場がありません/);
+ assert.match(elements.get('holdings-list').innerHTML,/未所持（0枚）/);
 });
 test('quantity issue link uses absolute target count and validates input',()=>{
  for(const quantity of [0,1,9999]){
