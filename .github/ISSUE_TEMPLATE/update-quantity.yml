@@ -1,0 +1,24 @@
+name: 所持枚数を変更
+description: 登録済みカードの所持枚数を変更します。0枚でも登録・履歴は残ります。
+title: "[所持枚数] 枚数の変更"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        変更後の合計枚数を確認して「Create」を押してください。
+        所有者・書き込み権限のある共同管理者のみ自動処理します。
+        反映には数分かかります。反映後にランキングを再読み込みしてください。
+        0枚は未所持です。カード登録・過去相場は削除されません。
+  - type: input
+    id: card-url
+    attributes:
+      label: SNKRDUNK URL
+    validations:
+      required: true
+  - type: input
+    id: quantity
+    attributes:
+      label: 所持枚数
+      description: 変更後の合計枚数（0〜9999の整数）
+    validations:
+      required: true

@@ -1,5 +1,5 @@
 // Run with node --test tests/test_portfolio.cjs (no dependencies).
-const {test}=require('node:test');
+const {test,beforeEach}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
@@ -8,6 +8,7 @@ const document={getElementById(id){if(!elements.has(id)) elements.set(id,{value:
 const context=vm.createContext({document,URL,console,fetch:()=>new Promise(()=>{})});
 vm.runInContext(fs.readFileSync('docs/index.html','utf8').match(/<script>([\s\S]*?)<\/script>/)[1],context);
 const run=code=>vm.runInContext(code,context);
+beforeEach(()=>run(`loadHoldings(['730956','737036','408333'].map(id=>({url:'https://snkrdunk.com/apparels/'+id,quantity:'2'})))`));
 test('latest two prices per card; unmatched cards excluded from both comparison totals',()=>{
  run(`build([{url:'a',source_date:'2026-09-05',price:'150'},{url:'a',source_date:'2026-08-01',price:'100'},{url:'b',source_date:'2026-09-06',price:'80'},{url:'c',source_date:'2026-09-02',price:'40'},{url:'c',source_date:'2026-09-01',price:'50'}]);renderPortfolio()`);
  assert.deepEqual(JSON.parse(run('JSON.stringify(portfolioTotals(cards))')),{total:270,count:3,current:190,previous:150,comparable:2,diff:40,pct:40/150});
@@ -21,7 +22,7 @@ test('empty, one price, zero baseline, decreases and invalid prices',()=>{
  const result=context.portfolioTotals([{rows:prices.map(price=>({price}))}]);assert.equal(result.diff,diff);assert.equal(result.pct,pct);
  }
  run(`build([{url:'a',source_date:'2026-09-01',price:''},{url:'a',source_date:'2026-09-02',price:'NaN'}]);renderPortfolio()`);
- assert.equal(elements.get('portfolio-total').textContent,'—');
+ assert.equal(elements.get('portfolio-total').textContent,'¥0');
 });
 test('real data renders and keeps card addition URL validation',()=>{
  context.raw=fs.readFileSync('docs/history.csv','utf8');run('build(csvParse(raw));renderPortfolio();render()');
@@ -87,4 +88,29 @@ test('six months uses each latest date, falls back only earlier and excludes mis
  assert.equal(context.compare(items[1].rows,'6months').base,'2026-02-27');
  assert.equal(context.compare(items[2].rows,'6months'),null);
  assert.equal(context.compare(items[0].rows,'recent').old,999);
+});
+
+test('zero is excluded from every total, restore works and ranking filter is independent',()=>{
+ run(`loadHoldings([{url:'https://snkrdunk.com/apparels/1',quantity:'0'},{url:'https://snkrdunk.com/apparels/2',quantity:'3'}]);build([
+ {url:'https://snkrdunk.com/apparels/1',name:'Unowned',source_date:'2025-01-01',price:'100'},
+ {url:'https://snkrdunk.com/apparels/1',name:'Unowned',source_date:'2026-09-01',price:'200'},
+ {url:'https://snkrdunk.com/apparels/2',name:'Owned',source_date:'2025-01-01',price:'10'},
+ {url:'https://snkrdunk.com/apparels/2',name:'Owned',source_date:'2026-09-01',price:'20'}])`);
+ for(const period of ['recent','7','30','3months','6months']){
+  const s=context.portfolioTotals(run('cards'),period);
+  assert.equal(s.total,60);assert.equal(s.previous,30);assert.equal(s.diff,30);assert.equal(s.count,3);
+ }
+ elements.get('ownership-filter').value='all';run('render()');assert.match(elements.get('list').innerHTML,/未所持（0枚）/);
+ elements.get('ownership-filter').value='owned';run('render()');assert.doesNotMatch(elements.get('list').innerHTML,/Unowned/);
+ run(`holdings['https://snkrdunk.com/apparels/1']=1`);assert.equal(run('portfolioTotals(cards).total'),260);
+ run(`holdings['https://snkrdunk.com/apparels/1']=0;holdings['https://snkrdunk.com/apparels/2']=0;renderPortfolio()`);
+ assert.equal(elements.get('portfolio-total').textContent,'¥0');assert.equal(run('portfolioTotals(cards).diff'),null);
+});
+test('quantity issue link uses absolute target count and validates input',()=>{
+ for(const quantity of [0,1,9999]){
+  const url=new URL(context.quantityRequest('https://snkrdunk.com/apparels/1',quantity));
+  assert.equal(url.searchParams.get('quantity'),String(quantity));assert.equal(url.searchParams.get('template'),'update-quantity.yml');
+ }
+ for(const value of [-1,1.5,10000,'', '1e2']) assert.throws(()=>context.quantityRequest('https://snkrdunk.com/apparels/1',value));
+ assert.throws(()=>run(`loadHoldings([{url:'https://snkrdunk.com/apparels/1',quantity:'-1'}])`));
 });

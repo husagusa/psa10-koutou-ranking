@@ -39,6 +39,14 @@ a{color:inherit;text-decoration:none}
 .portfolio-change{border-top:1px solid #e5e7eb;margin-top:14px;padding-top:14px}
 .change-value{font-size:22px;font-weight:750;display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0}
 .portfolio p{font-size:12px;color:#555;line-height:1.7;margin:8px 0 0}
+.holding-row{border-top:1px solid #ddd;padding:16px 0}
+.holding-row a{color:#075cc9;text-decoration:underline;font-size:14px}
+.quantity-controls{display:grid;grid-template-columns:56px minmax(0,1fr) 56px;gap:10px;align-items:center}
+.quantity-controls button{margin:0;background:#e8f0ff;color:#075cc9;font-size:24px}
+.quantity-controls input{text-align:center}
+.holding-error{color:#b42318!important}
+.ranking-filter{display:block;font-size:14px;margin:12px 0}
+.ranking-filter select{display:block;width:100%;min-height:48px;margin-top:6px;box-sizing:border-box}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -77,6 +85,15 @@ a{color:inherit;text-decoration:none}
 <button type="submit">GitHubで追加を確定する →</button>
 </form>
 </details>
+<details class="add-card" id="holdings-management" hidden>
+<summary>所持カード管理（枚数を変更）</summary>
+<p>「−」「＋」または数字入力で変更後の合計枚数を指定し、GitHubで「Create」を押してください。反映には数分かかります。完了後、このページを再読み込みしてください。画面の数字を変えただけでは保存されません。</p>
+<p>0枚は「未所持」です。登録や過去の相場は残り、再び1枚以上にすると総額に戻ります。GitHubへのログインと、このリポジトリへの書き込み権限が必要です。</p>
+<div id="holdings-list"></div>
+</details>
+<label class="ranking-filter" for="ownership-filter">個別相場ランキングの表示
+<select id="ownership-filter"><option value="all">すべて（未所持を含む）</option><option value="owned">所持カードのみ</option></select>
+</label>
 <div class="controls">
 <div><label for="period">個別カードの比較期間</label><select id="period"><option value="recent">直近比</option><option value="7">7日前</option><option value="30">30日前</option><option value="3months">3か月前</option><option value="6months">6か月前</option></select></div>
 <div><label for="metric">並び順</label><select id="metric"><option value="diff">上昇額</option><option value="pct">上昇率</option></select></div>
@@ -86,13 +103,59 @@ a{color:inherit;text-decoration:none}
 </div>
 <script>
 let cards = [];
-// Owned PSA10 copies; cards without an override default to one copy.
-const holdings = {
-  'https://snkrdunk.com/apparels/730956': 2, // MEGAドリームex
-  'https://snkrdunk.com/apparels/737036': 2, // スタートデッキ100
-  'https://snkrdunk.com/apparels/408333': 2, // 超電ブレイカー
-};
+let registered = [];
+let holdings = {};
 function quantity(card){return holdings[card.url] ?? 1;}
+function loadHoldings(rows){
+  const next = {};
+  for(const row of rows){
+    const url=normalizedCardUrl(row.url);
+    if(!/^(0|[1-9][0-9]{0,3})$/.test(row.quantity) || Object.hasOwn(next,url)) throw new Error('所持枚数データが不正です');
+    next[url]=Number(row.quantity);
+  }
+  registered=rows.map(row=>({url:normalizedCardUrl(row.url)}));
+  holdings=next;
+}
+function quantityRequest(url,value){
+  if(!/^(0|[1-9][0-9]{0,3})$/.test(String(value))) throw new Error('所持枚数は0〜9999の整数で入力してください。');
+  const next=new URL('https://github.com/husagusa/psa10-koutou-ranking/issues/new');
+  next.searchParams.set('template','update-quantity.yml');
+  next.searchParams.set('card-url',normalizedCardUrl(url));
+  next.searchParams.set('quantity',String(value));
+  return next.href;
+}
+function renderManagement(){
+  const byUrl=new Map(cards.map(c=>[c.url,c]));
+  document.getElementById('holdings-list').innerHTML=registered.map((r,i)=>{
+    const card=byUrl.get(r.url), copies=quantity(r);
+    return `<form class="holding-row" data-index="${i}">
+      <div class="name">${escapeHtml(card?.name || 'カード '+r.url.split('/').at(-1))}</div>
+      <p>現在：${copies===0?'未所持（0枚）':copies+'枚'}${!card?' ・相場未取得':''}</p>
+      <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer">商品ページを確認 ↗</a>
+      <label for="quantity-${i}">変更後の所持枚数</label>
+      <div class="quantity-controls"><button type="button" data-step="-1" aria-label="1枚減らす">−</button>
+      <input id="quantity-${i}" name="quantity" type="number" inputmode="numeric" min="0" max="9999" step="1" required value="${copies}">
+      <button type="button" data-step="1" aria-label="1枚増やす">＋</button></div>
+      <button type="submit">この枚数でGitHubへ →</button>
+      <p class="holding-error" role="alert"></p>
+    </form>`;
+  }).join('');
+  document.getElementById('holdings-management').hidden=false;
+}
+document.getElementById('holdings-list').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-step]');
+  if(!button) return;
+  const input=button.form.elements.quantity;
+  const current=Number(input.value);
+  if(Number.isInteger(current)) input.value=Math.max(0,Math.min(9999,current+Number(button.dataset.step)));
+});
+document.getElementById('holdings-list').addEventListener('submit',event=>{
+  event.preventDefault();
+  const form=event.target;
+  try{
+    window.location.assign(quantityRequest(registered[Number(form.dataset.index)].url,form.elements.quantity.value));
+  }catch(error){form.querySelector('.holding-error').textContent=error.message;}
+});
 function normalizedCardUrl(value){
   const raw=value.trim();
   if(raw.length>2048 || /[\s\\\x00-\x1f\x7f]/.test(raw)) throw new Error('invalid');
@@ -171,6 +234,7 @@ function portfolioTotals(items,period='recent'){
     if(!c.rows.length) continue;
     const latest=c.rows[c.rows.length-1];
     const copies=quantity(c);
+    if(copies===0) continue;
     total+=latest.price*copies;
     count+=copies;
     const old=comparisonRow(c.rows,period);
@@ -185,8 +249,8 @@ function portfolioTotals(items,period='recent'){
 function renderPortfolio(){
   const period=document.getElementById('portfolio-period').value;
   const s=portfolioTotals(cards,period);
-  document.getElementById('portfolio-total').textContent=s.count?yen(s.total):'—';
-  document.getElementById('portfolio-count').textContent=`価格取得済み ${cards.filter(c=>c.rows.length).length}種類・保有 ${s.count}枚`;
+  document.getElementById('portfolio-total').textContent=cards.length || registered.length?yen(s.total):'—';
+  document.getElementById('portfolio-count').textContent=`価格取得済みの所持カード ${cards.filter(c=>c.rows.length && quantity(c)>0).length}種類・${s.count}枚。未所持 ${registered.filter(c=>quantity(c)===0).length}種類。相場未取得の所持カード ${registered.filter(c=>quantity(c)>0 && !cards.some(p=>p.url===c.url)).length}種類は総額から除外。`;
   document.getElementById('portfolio-comparison-label').textContent=`${portfolioLabels[period]}（比較可能なカードのみ）`;
   const change=document.getElementById('portfolio-change');
   change.className='change-value '+cls(s.diff);
@@ -214,7 +278,7 @@ function render(){
   const period=document.getElementById('period').value;
   const metric=document.getElementById('metric').value;
 
-  const view=cards.map(c=>{
+  const view=cards.filter(c=>document.getElementById('ownership-filter').value!=='owned' || quantity(c)>0).map(c=>{
     const cur=c.rows[c.rows.length-1];
     return {...c,cur,cmp:compare(c.rows,period)};
   }).sort((a,b)=>{
@@ -228,7 +292,7 @@ function render(){
   document.getElementById('list').innerHTML=view.map((r,i)=>`
     <div class="card">
       <div class="rank">${i+1}位</div>
-      <div class="label">保有 ${quantity(r)}枚｜保有分 ${yen(r.cur.price*quantity(r))}</div>
+      <div class="label">${quantity(r)===0?'未所持（0枚）':'保有 '+quantity(r)+'枚'}｜保有分 ${yen(r.cur.price*quantity(r))}</div>
       <div class="name">
         <a href="${escapeHtml(safeCardLink(r.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}</a>
       </div>
@@ -261,32 +325,32 @@ function render(){
         </div>
       </div>
     </div>
-  `).join('');
+  `).join('') || '<p>表示対象の相場がありません。所持カード管理で枚数を確認できます。</p>';
 }
 
-fetch('history.csv?ts='+Date.now())
-  .then(r=>{
-    if(!r.ok) throw new Error('history.csv がありません');
-    return r.text();
-  })
-  .then(t=>{
-    const rows=csvParse(t);
-    build(rows);
-
-    document.getElementById('status').textContent=
-      `対象 ${cards.length}種類｜最新データを表示中`;
-
+Promise.all(['history.csv','cards.csv'].map(path=>fetch(path+'?ts='+Date.now()).then(r=>{
+  if(!r.ok) throw new Error(path+' がありません');
+  return r.text();
+})))
+  .then(([history,inventory])=>{
+    loadHoldings(csvParse(inventory));
+    build(csvParse(history));
+    const urls=new Set(registered.map(c=>c.url));
+    cards=cards.filter(c=>urls.has(c.url));
+    document.getElementById('status').textContent=`登録 ${registered.length}種類｜最新データを表示中`;
     renderPortfolio();
+    renderManagement();
     render();
   })
   .catch(e=>{
     document.getElementById('status').textContent=
-      'データの読み込みに失敗しました';
+      'データの読み込みに失敗しました。ページを再読み込みしてください。';
     console.error(e);
   });
 
 document.getElementById('portfolio-period').addEventListener('change',renderPortfolio);
 document.getElementById('period').addEventListener('change',render);
+document.getElementById('ownership-filter').addEventListener('change',render);
 document.getElementById('metric').addEventListener('change',render);
 </script>
 </body>

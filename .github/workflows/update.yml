@@ -8,7 +8,7 @@ on:
     types: [opened, edited, reopened]
   push:
     branches: [main]
-    paths: ['docs/**', 'scripts/**', '.github/workflows/update.yml']
+    paths: ['docs/**', 'cards.csv', 'scripts/**', '.github/workflows/update.yml']
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
   update:
     if: >-
       github.event_name != 'issues' ||
-      (startsWith(github.event.issue.title, '[カード追加]') &&
+      ((startsWith(github.event.issue.title, '[カード追加]') || startsWith(github.event.issue.title, '[所持枚数]')) &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -43,6 +43,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test portfolio calculations
+        run: node --test tests/test_portfolio.cjs
       - name: Test request validation
         run: python -m unittest discover -s tests -v
       - name: Validate and register pending card requests
@@ -58,14 +63,16 @@ jobs:
         continue-on-error: true
         run: python collector.py
       - name: Publish data for GitHub Pages
-        run: cp data/history.csv docs/history.csv
+        run: |
+          cp data/history.csv docs/history.csv
+          cp cards.csv docs/cards.csv
       - name: Commit cards and prices
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cards.csv data/history.csv docs/history.csv
+          git add cards.csv data/history.csv docs/history.csv docs/cards.csv data/holding_requests.json
           if ! git diff --cached --quiet; then
             git commit -m "Update PSA10 cards and prices"
             gh auth setup-git

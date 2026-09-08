@@ -35,19 +35,19 @@ def add_urls(path, urls):
     with path.open(newline='', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
         fields = reader.fieldnames
-        if fields != ['url']:
+        if fields not in (['url'], ['url', 'quantity']):
             raise ValueError('cards.csv のヘッダーが想定と異なります。')
         rows = list(reader)
     existing = {normalize_url(r['url']) for r in rows}
     added = []
     for url in urls:
         if url not in existing:
-            rows.append({'url': url})
+            rows.append({'url': url, **({'quantity': '1'} if 'quantity' in fields else {})})
             existing.add(url)
             added.append(url)
     if added:
         with path.open('w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=fields)
+            writer = csv.DictWriter(f, fieldnames=fields, lineterminator='\n')
             writer.writeheader()
             writer.writerows(rows)
     return added
@@ -79,24 +79,62 @@ def comment_once(number, message):
         api(f'/issues/{number}/comments', {'body': message + '\n\n' + marker})
 
 
+def parse_quantity(body):
+    match = re.search(r'^### 所持枚数\s*\n(.*?)(?=^### |\Z)', body or '', re.M | re.S)
+    value = match.group(1).strip() if match else ''
+    if not re.fullmatch(r'(0|[1-9][0-9]{0,3})', value):
+        raise ValueError('所持枚数は0〜9999の整数で入力してください。')
+    return int(value)
+
+
+def set_quantity(path, url, quantity):
+    with path.open(newline='', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        fields, rows = reader.fieldnames, list(reader)
+    if fields != ['url', 'quantity']:
+        raise ValueError('cards.csv の所持枚数の移行が必要です。')
+    matched = [r for r in rows if normalize_url(r['url']) == url]
+    if not matched:
+        raise ValueError('未登録のカードです。先に「＋カードを追加」で登録してください。')
+    for row in matched:
+        row['quantity'] = str(quantity)
+    with path.open('w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fields, lineterminator='\n')
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def prepare():
     results = []
-    # Scan every pending request: GitHub concurrency can replace a pending run.
-    # The next run (including the daily update) always recovers unprocessed Issues.
+    ledger_path = ROOT / 'data/holding_requests.json'
+    ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else []
+    # Persistent receipts commit atomically with quantities: retries after a failed
+    # collection/deployment cannot replay an old request over a newer quantity.
     for issue in pages('/issues?state=open&sort=created&direction=asc'):
-        if 'pull_request' in issue or not issue['title'].startswith('[カード追加]'):
+        is_quantity = issue['title'].startswith('[所持枚数]')
+        if 'pull_request' in issue or not (is_quantity or issue['title'].startswith('[カード追加]')):
             continue
-        # Re-check current repository write permission; author_association alone is insufficient.
         login = issue['user']['login']
         permission = api(f'/collaborators/{login}/permission')['permission']
         if permission not in ('admin', 'maintain', 'write'):
             continue
         try:
             url = parse_body(issue.get('body'))
-            results.append({'number': issue['number'], 'url': url, 'body': issue.get('body')})
+            result = {'number': issue['number'], 'url': url, 'body': issue.get('body')}
+            if is_quantity:
+                quantity = parse_quantity(issue.get('body'))
+                receipt = str(issue['number']) + ':' + hashlib.sha256((issue.get('body') or '').encode()).hexdigest()
+                if receipt not in ledger:
+                    set_quantity(ROOT / 'cards.csv', url, quantity)
+                    ledger.append(receipt)
+                result['quantity'] = quantity
+            else:
+                add_urls(ROOT / 'cards.csv', [url])
+            results.append(result)
         except ValueError as exc:
-            comment_once(issue['number'], '追加できませんでした。' + str(exc) + '\nIssue本文を修正すると再実行されます。')
-    add_urls(ROOT / 'cards.csv', [r['url'] for r in results])
+            comment_once(issue['number'], '反映できませんでした。' + str(exc) + '\nIssue本文を修正すると再実行されます。')
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text(json.dumps(ledger, indent=2) + '\n', encoding='utf-8')
     RESULTS.write_text(json.dumps(results), encoding='utf-8')
 
 
@@ -110,7 +148,12 @@ def report():
         current = api(f'/issues/{number}')
         if current.get('body') != result['body'] or current['state'] != 'open':
             continue
-        if url in available and os.environ.get('COLLECT_OUTCOME') == 'success':
+        if 'quantity' in result:
+            comment_once(number, '所持枚数の変更申請を処理して公開しました（申請: ' + str(result['quantity']) +
+                         '枚）。複数の申請がある場合は後続の変更が優先されます。ページを再読み込みして現在の枚数をご確認ください。' +
+                         '\n0枚でもカード登録・過去相場は残ります。\nhttps://husagusa.github.io/psa10-koutou-ranking/')
+            api(f'/issues/{number}', {'state': 'closed'}, 'PATCH')
+        elif url in available and os.environ.get('COLLECT_OUTCOME') == 'success':
             comment_once(number, '登録済みです（同じURLは重複追加しません）。PSA10相場を公開しました。\n' +
                          'https://husagusa.github.io/psa10-koutou-ranking/\n\n' +
                          '比較対象日の相場がない場合、上昇額・上昇率は「-」になります。')
