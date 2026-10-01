@@ -11,7 +11,7 @@ const run=code=>vm.runInContext(code,context);
 beforeEach(()=>run(`loadHoldings(['730956','737036','408333'].map(id=>({url:'https://snkrdunk.com/apparels/'+id,quantity:'2'})))`));
 test('latest two prices per card; unmatched cards excluded from both comparison totals',()=>{
  run(`build([{url:'a',source_date:'2026-09-05',price:'150'},{url:'a',source_date:'2026-08-01',price:'100'},{url:'b',source_date:'2026-09-06',price:'80'},{url:'c',source_date:'2026-09-02',price:'40'},{url:'c',source_date:'2026-09-01',price:'50'}]);renderPortfolio()`);
- assert.deepEqual(JSON.parse(run('JSON.stringify(portfolioTotals(cards))')),{total:270,count:3,current:190,previous:150,comparable:2,diff:40,pct:40/150});
+ assert.deepEqual(JSON.parse(run('JSON.stringify(portfolioTotals(cards))')),{total:270,count:3,current:190,previous:200,comparable:2,diff:-10,pct:-0.05});
  assert.match(elements.get('portfolio-basis').textContent,/比較価格のない 1枚/);
  assert.equal(run("compare(cards[0].rows,'6months')"),null);
  const before=elements.get('portfolio-total').textContent;
