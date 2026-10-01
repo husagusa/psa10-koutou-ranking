@@ -283,7 +283,7 @@ function render(){
 const latestDate=cards.flatMap(c=>c.rows).map(r=>r.date).sort().at(-1);
   const view=cards.filter(c=>quantity(c)>0).map(c=>{
     const cur=c.rows[c.rows.length-1];
-   return {...c,cur,cmp:(period==='recent'&&cur.date!==latestDate)?{old:cur.price,base:cur.date,diff:0,pct:0}:compare(c.rows,period)};
+   return {...c,cur,cmp:compare(c.rows,period)};
   }).sort((a,b)=>{
     const av=a.cmp?.[metric], bv=b.cmp?.[metric];
     if(av==null&&bv==null)return 0;
