@@ -259,14 +259,15 @@ function renderPortfolio(){
 }
 function comparisonRow(rows,period){
   if(rows.length<2) return null;
+
   if(period==='recent'){
-  const cur=rows[rows.length-1];
-  const d=new Date(cur.date+'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate()-1);
-  const yesterday=d.toISOString().slice(0,10);
-  return rows.find(r=>r.date===yesterday) ?? cur;
-}
-  const target=portfolioTarget(period,rows[rows.length-1].date);
+    return rows[rows.length-2] ?? null;
+  }
+
+  const latest=rows[rows.length-1];
+  const target=portfolioTarget(period,latest.date);
+  if(!target) return null;
+
   return rows.filter(r=>r.date<=target).at(-1) ?? null;
 }
 function compare(rows,period){
