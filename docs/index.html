@@ -261,6 +261,8 @@ function comparisonRow(rows,period){
   if(rows.length<2) return null;
   if(period==='recent'){
   const cur=rows[rows.length-1];
+const latestDate=cards.flatMap(c=>c.rows).map(r=>r.date).sort().at(-1);
+if(cur.date!==latestDate) return cur;
   const d=new Date(cur.date+'T00:00:00Z');
   d.setUTCDate(d.getUTCDate()-1);
   const yesterday=d.toISOString().slice(0,10);
